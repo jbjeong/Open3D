@@ -299,6 +299,7 @@ bool TexturePhongShaderForTriangleMesh::PrepareBinding(
     for (size_t i = 0; i < mesh.triangles_.size(); i++) {
         const auto &triangle = mesh.triangles_[i];
         int mi = mesh.triangle_material_ids_[i];
+	mi = 0; // index error (original: -1) by JB
 
         for (size_t j = 0; j < 3; j++) {
             size_t idx = i * 3 + j;
