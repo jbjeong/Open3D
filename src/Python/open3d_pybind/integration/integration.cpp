@@ -142,6 +142,9 @@ In SIGGRAPH, 1996)");
             .def("extract_voxel_point_cloud",
                  &integration::UniformTSDFVolume::ExtractVoxelPointCloud,
                  "Debug function to extract the voxel data into a point cloud.")
+            .def("init_voxels",
+                 &integration::UniformTSDFVolume::InitVoxels,
+                 "Initialize voxels")
             .def("extract_voxel_grid",
                  &integration::UniformTSDFVolume::ExtractVoxelGrid,
                  "Debug function to extract the voxel data VoxelGrid.")

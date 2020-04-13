@@ -490,6 +490,77 @@ std::shared_ptr<PointCloud> TriangleMesh::SamplePointsUniformlyImpl(
     return pcd;
 }
 
+std::tuple<
+    std::shared_ptr<PointCloud>, 
+    std::vector<int>
+    > TriangleMesh::SamplePointsUniformlyWithTrianglesImpl(
+        size_t number_of_points,
+        std::vector<double> &triangle_areas,
+        double surface_area,
+        bool use_triangle_normal) {
+    // triangle areas to cdf
+    triangle_areas[0] /= surface_area;
+    for (size_t tidx = 1; tidx < triangles_.size(); ++tidx) {
+        triangle_areas[tidx] =
+                triangle_areas[tidx] / surface_area + triangle_areas[tidx - 1];
+    }
+    
+    std::vector<int> triangle_idxs; // Triangle index
+
+    // sample point cloud
+    bool has_vert_normal = HasVertexNormals();
+    bool has_vert_color = HasVertexColors();
+    std::random_device rd;
+    std::mt19937 mt(rd());
+    std::uniform_real_distribution<double> dist(0.0, 1.0);
+    auto pcd = std::make_shared<PointCloud>();
+    pcd->points_.resize(number_of_points);
+    if (has_vert_normal || use_triangle_normal) {
+        pcd->normals_.resize(number_of_points);
+    }
+    if (use_triangle_normal && !HasTriangleNormals()) {
+        ComputeTriangleNormals(true);
+    }
+    if (has_vert_color) {
+        pcd->colors_.resize(number_of_points);
+    }
+    size_t point_idx = 0;
+    for (size_t tidx = 0; tidx < triangles_.size(); ++tidx) {
+        size_t n = size_t(std::round(triangle_areas[tidx] * number_of_points));
+        while (point_idx < n) {
+            double r1 = dist(mt);
+            double r2 = dist(mt);
+            double a = (1 - std::sqrt(r1));
+            double b = std::sqrt(r1) * (1 - r2);
+            double c = std::sqrt(r1) * r2;
+
+            const Eigen::Vector3i &triangle = triangles_[tidx];
+            pcd->points_[point_idx] = a * vertices_[triangle(0)] +
+                                      b * vertices_[triangle(1)] +
+                                      c * vertices_[triangle(2)];
+            if (has_vert_normal && !use_triangle_normal) {
+                pcd->normals_[point_idx] = a * vertex_normals_[triangle(0)] +
+                                           b * vertex_normals_[triangle(1)] +
+                                           c * vertex_normals_[triangle(2)];
+            }
+            if (use_triangle_normal) {
+                pcd->normals_[point_idx] = triangle_normals_[tidx];
+            }
+            if (has_vert_color) {
+                pcd->colors_[point_idx] = a * vertex_colors_[triangle(0)] +
+                                          b * vertex_colors_[triangle(1)] +
+                                          c * vertex_colors_[triangle(2)];
+            }
+
+            point_idx++;
+
+            triangle_idxs.push_back(tidx); // Triangle index
+        }
+    }
+
+    return {pcd, triangle_idxs};
+}
+
 std::shared_ptr<PointCloud> TriangleMesh::SamplePointsUniformly(
         size_t number_of_points, bool use_triangle_normal /* = false */) {
     if (number_of_points <= 0) {
@@ -506,6 +577,675 @@ std::shared_ptr<PointCloud> TriangleMesh::SamplePointsUniformly(
 
     return SamplePointsUniformlyImpl(number_of_points, triangle_areas,
                                      surface_area, use_triangle_normal);
+}
+
+std::tuple<
+    std::shared_ptr<PointCloud>, 
+    std::vector<int>
+    > TriangleMesh::SamplePointsUniformlyWithTriangles(
+        size_t number_of_points, bool use_triangle_normal /* = false */) {
+    if (number_of_points <= 0) {
+        utility::LogError("[SamplePointsUniformly] number_of_points <= 0");
+    }
+    if (triangles_.size() == 0) {
+        utility::LogError(
+                "[SamplePointsUniformly] input mesh has no triangles");
+    }
+
+    // Compute area of each triangle and sum surface area
+    std::vector<double> triangle_areas;
+    double surface_area = GetSurfaceArea(triangle_areas);
+
+    return SamplePointsUniformlyWithTrianglesImpl(number_of_points, triangle_areas,
+                                     surface_area, use_triangle_normal);
+}
+
+/*
+std::tuple<
+    std::vector<Eigen::Vector3d>,
+    std::vector<int>> TriangleMesh::GetCubeCornerCoordsAndTriangleIdx(
+        const std::vector<Eigen::Vector3d>& coords,
+        const std::vector<int>& triangle_idxs) {
+
+    // Initialize
+    std::vector<Eigen::Vector3d> corner_coords;
+    std::vector<int> corner_triangle_idxs;
+
+    // Make corner_list
+    std::vector<Eigen::Vector3d> shift_list;
+    for (int dx = 0; dx < 2; ++dx) {
+        for (int dy = 0; dy < 2; ++dy) {
+            for (int dz = 0; dz < 2; ++dz) {
+                shift_list.push_back( Eigen::Vector3d(dx, dy, dz) );
+            }
+        }
+    }
+
+    for (size_t c_idx = 0; c_idx < coords.size(); ++c_idx) {
+        const Eigen::Vector3d &coord = coords[c_idx];
+
+        for (size_t d_idx = 0; d_idx < shift_list.size(); ++d_idx) {
+            corner_coords.push_back(coord + shift_list[d_idx]);
+            corner_triangle_idxs.push_back(triangle_idxs[c_idx]);
+        }
+    }
+    
+    return {corner_coords, corner_triangle_idxs};
+}
+*/
+
+std::vector<int> TriangleMesh::GetVoxelLabel(
+        const std::vector<Eigen::Vector3d>& coords, // unique
+        const std::vector<int>& triangle_idxs, // corresponding to coords
+        int resolution, 
+        const Eigen::Vector3d & translation,
+        double scale) {
+
+    // Initialize
+    std::vector<int> coord_labels;
+
+    // Find shared_vertex_list
+    std::vector<std::vector<size_t>> shared_vertex_list;
+    for (size_t i = 0; i < triangles_.size(); ++i) {
+        std::vector<size_t> tmp_vec;
+        const Eigen::Vector3i &triangle = triangles_[i];
+        const Eigen::Vector3d &v0 = vertices_[triangle(0)];
+        const Eigen::Vector3d &v1 = vertices_[triangle(1)];
+        const Eigen::Vector3d &v2 = vertices_[triangle(2)];
+        for (size_t j = 0; j < triangles_.size(); ++j) {
+            const Eigen::Vector3i &triangle_j = triangles_[j];
+            const Eigen::Vector3d &v0_j = vertices_[triangle_j(0)];
+            const Eigen::Vector3d &v1_j = vertices_[triangle_j(1)];
+            const Eigen::Vector3d &v2_j = vertices_[triangle_j(2)];
+            if (v0 == v0_j || v1 == v1_j || v2 == v2_j) {
+                tmp_vec.push_back(j);
+            }
+        }
+        shared_vertex_list.push_back(tmp_vec);
+    }
+
+    // Iterate coords
+    for (size_t c_idx = 0; c_idx < coords.size(); ++c_idx) {
+
+        Eigen::Vector3d coord = coords[c_idx];
+
+        // Denormalize
+        coord = ((coord / (double)resolution) * scale) + translation;
+
+        // Find search_triangle_list
+        /*
+        // Hyperparameter - radius
+        const double SEARCH_RADIUS = (1 / (double)resolution * scale) * 10;
+        std::vector<size_t> search_triangle_idxs;
+        for (size_t tmp_tidx = 0; tmp_tidx < triangles_.size(); ++tmp_tidx) {
+            const Eigen::Vector3i &triangle = triangles_[tmp_tidx];
+            const Eigen::Vector3d &v0 = vertices_[triangle(0)];
+            const Eigen::Vector3d &v1 = vertices_[triangle(1)];
+            const Eigen::Vector3d &v2 = vertices_[triangle(2)];
+            const Eigen::Vector3d avg_v = (v0 + v1 + v2) / 3;
+            double distance = (coord - avg_v).norm();
+            if (distance <= SEARCH_RADIUS) {
+                search_triangle_idxs.push_back(tmp_tidx);
+            }
+        }
+        */
+
+        // Find the closest triangle to coord
+        int cur_coord_tidx = triangle_idxs[c_idx];
+        const std::vector<size_t> &cur_coord_shared_vertex_list = shared_vertex_list[cur_coord_tidx];
+        std::vector<size_t> search_triangle_idxs;
+        search_triangle_idxs.assign(cur_coord_shared_vertex_list.begin(), cur_coord_shared_vertex_list.end());
+        for (size_t i = 0; i < cur_coord_shared_vertex_list.size(); ++i) {
+            size_t tmp_tidx = cur_coord_shared_vertex_list[i];
+            const std::vector<size_t> &tmp_shared_vertex_list = shared_vertex_list[tmp_tidx];
+            for (size_t j = 0; j < tmp_shared_vertex_list.size(); ++j) {
+                size_t new_tidx = tmp_shared_vertex_list[j]; 
+                std::vector<size_t>::iterator it = std::find(search_triangle_idxs.begin(), search_triangle_idxs.end(), new_tidx);
+                if (it == search_triangle_idxs.end()) {
+                    search_triangle_idxs.push_back(new_tidx);
+                }
+            }
+        }
+
+        double best_dist = 123456789;
+        int best_tidx = -1;
+        for (size_t idx = 0; idx < search_triangle_idxs.size(); ++idx) {
+            size_t cur_tidx = search_triangle_idxs[idx];
+            double distance = GetDistancePointTriangle(coord, cur_tidx);
+            if (distance < best_dist) {
+                best_dist = distance;
+                best_tidx = cur_tidx;
+            }
+        }
+
+        if (best_tidx == -1) {
+            throw std::invalid_argument("best_tidx is -1.");
+        }
+
+        // Get triangle plane and calculate sign label.
+        Eigen::Vector4d abcd = GetTrianglePlane(best_tidx);
+        double det_value = \
+            abcd(0) * coord(0) + abcd(1) * coord(1) + abcd(2) * coord(2) + abcd(3);
+        int coord_label;
+        if (det_value > 0)
+            coord_label = 1;
+        else if (det_value < 0)
+            coord_label = -1;
+        else {
+            throw std::invalid_argument("received 0.");
+        }
+        coord_labels.push_back(coord_label);
+    }
+
+    return coord_labels;
+}
+
+
+std::tuple<
+    std::vector<Eigen::Vector3d>,
+    std::vector<double>> TriangleMesh::GetCubeCornerLabel(
+        const std::vector<Eigen::Vector3d>& pcd, 
+        const std::vector<Eigen::Vector3d>& unique_coords,
+        const std::vector<int>& inverse_map,
+        const std::vector<int>& triangle_idxs,
+        size_t num_cubes,
+        int resolution, 
+        const Eigen::Vector3d & translation,
+        double scale) {
+//    std::cout << "hello" << std::endl;
+//    //std::vector<Eigen::Matrix<int, 8, 1>> tmp_result;
+//    //std::vector<std::vector<int>> tmp_result;
+//    std::vector<int> tmp_result;
+//    return tmp_result;
+
+    // Initialize
+    std::vector<Eigen::Vector3d> corner_coords;
+    std::vector<double> corner_labels;
+
+    std::vector<std::vector<std::tuple<int, int>>> corner_idx_to_triangle_idxs_map;
+    for (size_t i = 0; i < num_cubes; ++i) {
+        std::vector<std::tuple<int,int>> init_v;
+        corner_idx_to_triangle_idxs_map.push_back(init_v);
+    }
+
+    // Create map (key: cube_idx, value: {triangle_idx, pcd_idx} list in cube)
+    for (size_t i = 0; i < inverse_map.size(); ++i) {
+        corner_idx_to_triangle_idxs_map[ inverse_map[i] ].push_back( {triangle_idxs[i], i} );
+    }
+
+    // Make corner_list
+    std::vector<Eigen::Vector3d> corner_delta_list;
+    for (int dx = 0; dx < 2; ++dx) {
+        for (int dy = 0; dy < 2; ++dy) {
+            for (int dz = 0; dz < 2; ++dz) {
+                corner_delta_list.push_back( Eigen::Vector3d(dx, dy, dz) );
+            }
+        }
+    }
+
+    // Iterate cubes
+    std::vector<std::tuple<int,int>> tmp_v;
+    for (size_t i = 0; i < num_cubes; ++i) {
+
+        // Get {triangle_idx, pcd_idx}
+        tmp_v = corner_idx_to_triangle_idxs_map[i];
+        
+        Eigen::Vector3d cube_origin = unique_coords[i];
+        for (int c_idx = 0; c_idx < 8; ++c_idx) {
+            Eigen::Vector3d corner = cube_origin + corner_delta_list[c_idx];
+            corner_coords.push_back(corner);
+            // Denormalize
+            corner = ((corner / resolution) * scale) + translation;
+
+            // Find the closest point to the corner
+            //int best_idx = -1;
+            double best_dist = 123456789;
+            double distance = 0;
+            int best_tidx = -1;
+            /*
+            for (size_t tmp_tidx = 0; tmp_tidx < triangles_.size(); ++tmp_tidx) {
+                distance = GetDistancePointTriangle(corner, tmp_tidx);
+                if (distance < best_dist) {
+                    best_dist = distance;
+                    best_tidx = tmp_tidx;
+                }
+            }
+            */
+
+            for (size_t tmp_v_idx = 0; tmp_v_idx < tmp_v.size(); ++tmp_v_idx) {
+                int tidx = std::get<0>(tmp_v[tmp_v_idx]);
+                distance = GetDistancePointTriangle(corner, tidx);
+
+                //int pcd_idx = std::get<1>(tmp_v[tmp_v_idx]);
+                //Eigen::Vector3d tmp_p = pcd[pcd_idx];
+                //distance = (corner - tmp_p).norm();
+                if (distance < best_dist) {
+                    best_dist = distance;
+                    best_tidx = tidx;
+                }
+            }
+
+            if (best_tidx == -1) {
+                throw std::invalid_argument("best_tidx is -1.");
+            }
+//            if (best_idx == -1) {
+//                throw std::invalid_argument("best_idx is -1.");
+//            }
+
+            // Get triangle plane
+            //int triangle_idx = std::get<0>(tmp_v[best_idx]);
+            //Eigen::Vector4d abcd = GetTrianglePlane(triangle_idx);
+            Eigen::Vector4d abcd = GetTrianglePlane(best_tidx);
+            double det_value = \
+                abcd(0) * corner(0) + abcd(1) * corner(1) + abcd(2) * corner(2) + abcd(3);
+
+            double denom = abcd(0)*abcd(0) + abcd(1)*abcd(1) + abcd(2)*abcd(2);
+            double value = det_value / std::sqrt(denom); // distane
+            double corner_label = value;
+            if (value == 0)
+                throw std::invalid_argument("received 0.");
+            /*
+            if (det_value > 0)
+                corner_label = value;
+            else if (det_value < 0)
+                corner_label = -value;
+            else {
+                throw std::invalid_argument("received 0.");
+            }
+            */
+            corner_labels.push_back(corner_label);
+        }
+    }
+
+    return {corner_coords, corner_labels};
+}
+
+int TriangleMesh::IndexOf(Eigen::Vector3i xyz, int resolution) {
+    int result = resolution * resolution * xyz(0) + resolution * xyz(1) + xyz(2);
+    return result;
+}
+
+Eigen::Vector3i TriangleMesh::CoordOf(int idx, int resolution) {
+    int index = idx;
+    int x = (int)(index / (resolution * resolution));
+    index = index - (resolution * resolution * x);
+    int y = (int)(index / resolution);
+    index = index - (resolution * y);
+    int z = (int)index;
+    Eigen::Vector3i result(x, y, z);
+    return result;
+}
+
+std::tuple<
+    std::vector<Eigen::Vector3i>,
+    std::vector<double>> TriangleMesh::GetCubeCornerLabel_v2(
+        const std::vector<Eigen::Vector3i>& floor_coords,
+        const std::vector<Eigen::Vector3i>& round_coords,
+        const std::vector<int>& triangle_idxs,
+        int resolution, 
+        const Eigen::Vector3d & translation,
+        double scale) {
+
+    // Initialize
+    std::vector<Eigen::Vector3i> corner_coords;
+    std::vector<double> corner_labels;
+    
+    // 1. Make coord_to_triangle_idx_list map
+    std::unordered_map<Eigen::Vector3i, std::vector<int>,
+                       utility::hash_eigen::hash<Eigen::Vector3i>>
+            corner_coord_to_tidx_list_map;
+    //std::unordered_map<int, std::vector<int>> corner_coord_to_tidx_list_map;
+
+    std::vector<Eigen::Vector3i> shift_list;
+    for (int dx = 0; dx < 2; ++dx) {
+        for (int dy = 0; dy < 2; ++dy) {
+            for (int dz = 0; dz < 2; ++dz) {
+                shift_list.push_back( Eigen::Vector3i(dx, dy, dz) );
+            }
+        }
+    }
+
+    for (size_t i = 0; i < floor_coords.size(); ++i) {
+        Eigen::Vector3i f_coord = floor_coords[i];
+        for (size_t s_idx = 0; s_idx < shift_list.size(); ++s_idx) {
+            Eigen::Vector3i tmp_coord = f_coord + shift_list[s_idx];
+            //auto itr = corner_coord_to_tidx_list_map.find(IndexOf(tmp_coord, resolution+2));
+            auto itr = corner_coord_to_tidx_list_map.find(tmp_coord);
+            if (itr == corner_coord_to_tidx_list_map.end()) {
+                std::vector<int> tmp_v;
+                //corner_coord_to_tidx_list_map[IndexOf(tmp_coord, resolution+2)] = tmp_v;
+                corner_coord_to_tidx_list_map[tmp_coord] = tmp_v;
+            }
+        }
+    }
+
+    // 2. Add triangle_idxs to map
+    for (size_t i = 0; i < round_coords.size(); ++i) {
+        Eigen::Vector3i r_coord = round_coords[i];
+        //auto itr = corner_coord_to_tidx_list_map.find(IndexOf(r_coord, resolution+2));
+        auto itr = corner_coord_to_tidx_list_map.find(r_coord);
+        if (itr == corner_coord_to_tidx_list_map.end()) {
+            throw std::invalid_argument("Invalid r_coord.");
+        }
+        itr->second.push_back(triangle_idxs[i]);
+    }
+    
+    // 3. Fill empty list in map
+    std::vector<Eigen::Vector3i> delta_list;
+    for (int dx = -1; dx < 2; ++dx) {
+        for (int dy = -1; dy < 2; ++dy) {
+            for (int dz = -1; dz < 2; ++dz) {
+                if (dx == 0 && dy ==0 && dz == 0) continue;
+                delta_list.push_back( Eigen::Vector3i(dx, dy, dz) );
+            }
+        }
+    }
+
+    std::unordered_map<Eigen::Vector3i, int, 
+                       utility::hash_eigen::hash<Eigen::Vector3i>>
+            check_map;
+    
+    for (auto& kv : corner_coord_to_tidx_list_map) {
+        if (kv.second.size() == 0) {
+            check_map[kv.first] = 1;
+            for (size_t d_idx = 0; d_idx < delta_list.size(); ++d_idx) {
+                //Eigen::Vector3i tmp_coord = CoordOf(kv.first, resolution+2) + delta_list[d_idx];
+                Eigen::Vector3i tmp_coord = kv.first + delta_list[d_idx];
+                //auto itr = corner_coord_to_tidx_list_map.find(IndexOf(tmp_coord, resolution+2));
+                auto check_itr = check_map.find(tmp_coord);
+                if (check_itr != check_map.end()) continue;
+                auto itr = corner_coord_to_tidx_list_map.find(tmp_coord);
+                if (itr != corner_coord_to_tidx_list_map.end()) {
+                    for (auto &tidx : itr->second) {  
+                        corner_coord_to_tidx_list_map[kv.first].push_back(tidx);
+                    }
+                }
+            }
+        }
+        if (kv.second.size() == 0) {
+            throw std::invalid_argument("empty");
+        }
+    }
+
+    // 4. Iterate map for assigning label.
+    for (auto& kv : corner_coord_to_tidx_list_map) {
+        
+        //Eigen::Vector3i point_int = CoordOf(kv.first, resolution+2);
+        Eigen::Vector3i point_int = kv.first;
+        corner_coords.push_back(point_int);
+        Eigen::Vector3d point((double)point_int(0), (double)point_int(1), (double)point_int(2));
+
+        // Denormalize
+        point = ((point / resolution) * scale) + translation;
+
+        // Find the closest triangle to the point
+        double best_dist = 123456789;
+        double distance = 0;
+        int best_tidx = -1;
+
+        for (size_t v_idx = 0; v_idx < kv.second.size(); ++v_idx) {
+            int tidx = kv.second[v_idx];
+            distance = GetDistancePointTriangle(point, tidx);
+            if (distance < best_dist) {
+                best_dist = distance;
+                best_tidx = tidx;
+            }
+        }
+
+        if (best_tidx == -1) {
+            throw std::invalid_argument("best_tidx is -1.");
+        }
+
+        // Get triangle plane and calculate label value
+        Eigen::Vector4d abcd = GetTrianglePlane(best_tidx);
+        double det_value = abcd(0) * point(0) + abcd(1) * point(1) + abcd(2) * point(2) + abcd(3);
+        double denom = abcd(0)*abcd(0) + abcd(1)*abcd(1) + abcd(2)*abcd(2);
+        double value = det_value / std::sqrt(denom); // point to plane distance
+        if (value == 0)
+            throw std::invalid_argument("received 0.");
+        corner_labels.push_back(value);
+    }
+
+    return {corner_coords, corner_labels};
+}
+
+double TriangleMesh::GetDistancePointTriangle(Eigen::Vector3d p, int tidx) {
+
+    const Eigen::Vector3i &triangle = triangles_[tidx];
+    Eigen::Vector3d &v0 = vertices_[triangle(0)];
+    Eigen::Vector3d &v1 = vertices_[triangle(1)];
+    Eigen::Vector3d &v2 = vertices_[triangle(2)];
+
+    Eigen::Vector3d diff = p - v0;
+    Eigen::Vector3d edge0 = v1 - v0;
+    Eigen::Vector3d edge1 = v2 - v0;
+    double a00 = edge0.dot(edge0);
+    double a01 = edge0.dot(edge1);
+    double a11 = edge1.dot(edge1);
+    double b0 = -diff.dot(edge0);
+    double b1 = -diff.dot(edge1);
+    double const zero = (double)0;
+    double const one = (double)1;
+    double det = a00 * a11 - a01 * a01;
+    double t0 = a01 * b1 - a11 * b0;
+    double t1 = a01 * b0 - a00 * b1;
+
+    if (t0 + t1 <= det)
+    {
+        if (t0 < zero)
+        {
+            if (t1 < zero)  // region 4
+            {
+                if (b0 < zero)
+                {
+                    t1 = zero;
+                    if (-b0 >= a00)  // V1
+                    {
+                        t0 = one;
+                    }
+                    else  // E01
+                    {
+                        t0 = -b0 / a00;
+                    }
+                }
+                else
+                {
+                    t0 = zero;
+                    if (b1 >= zero)  // V0
+                    {
+                        t1 = zero;
+                    }
+                    else if (-b1 >= a11)  // V2
+                    {
+                        t1 = one;
+                    }
+                    else  // E20
+                    {
+                        t1 = -b1 / a11;
+                    }
+                }
+            }
+            else  // region 3
+            {
+                t0 = zero;
+                if (b1 >= zero)  // V0
+                {
+                    t1 = zero;
+                }
+                else if (-b1 >= a11)  // V2
+                {
+                    t1 = one;
+                }
+                else  // E20
+                {
+                    t1 = -b1 / a11;
+                }
+            }
+        }
+        else if (t1 < zero)  // region 5
+        {
+            t1 = zero;
+            if (b0 >= zero)  // V0
+            {
+                t0 = zero;
+            }
+            else if (-b0 >= a00)  // V1
+            {
+                t0 = one;
+            }
+            else  // E01
+            {
+                t0 = -b0 / a00;
+            }
+        }
+        else  // region 0, interior
+        {
+            double invDet = one / det;
+            t0 *= invDet;
+            t1 *= invDet;
+        }
+    }
+    else
+    {
+        double tmp0, tmp1, numer, denom;
+
+        if (t0 < zero)  // region 2
+        {
+            tmp0 = a01 + b0;
+            tmp1 = a11 + b1;
+            if (tmp1 > tmp0)
+            {
+                numer = tmp1 - tmp0;
+                denom = a00 - ((double)2)*a01 + a11;
+                if (numer >= denom)  // V1
+                {
+                    t0 = one;
+                    t1 = zero;
+                }
+                else  // E12
+                {
+                    t0 = numer / denom;
+                    t1 = one - t0;
+                }
+            }
+            else
+            {
+                t0 = zero;
+                if (tmp1 <= zero)  // V2
+                {
+                    t1 = one;
+                }
+                else if (b1 >= zero)  // V0
+                {
+                    t1 = zero;
+                }
+                else  // E20
+                {
+                    t1 = -b1 / a11;
+                }
+            }
+        }
+        else if (t1 < zero)  // region 6
+        {
+            tmp0 = a01 + b1;
+            tmp1 = a00 + b0;
+            if (tmp1 > tmp0)
+            {
+                numer = tmp1 - tmp0;
+                denom = a00 - ((double)2)*a01 + a11;
+                if (numer >= denom)  // V2
+                {
+                    t1 = one;
+                    t0 = zero;
+                }
+                else  // E12
+                {
+                    t1 = numer / denom;
+                    t0 = one - t1;
+                }
+            }
+            else
+            {
+                t1 = zero;
+                if (tmp1 <= zero)  // V1
+                {
+                    t0 = one;
+                }
+                else if (b0 >= zero)  // V0
+                {
+                    t0 = zero;
+                }
+                else  // E01
+                {
+                    t0 = -b0 / a00;
+                }
+            }
+        }
+        else  // region 1
+        {
+            numer = a11 + b1 - a01 - b0;
+            if (numer <= zero)  // V2
+            {
+                t0 = zero;
+                t1 = one;
+            }
+            else
+            {
+                denom = a00 - ((double)2)*a01 + a11;
+                if (numer >= denom)  // V1
+                {
+                    t0 = one;
+                    t1 = zero;
+                }
+                else  // 12
+                {
+                    t0 = numer / denom;
+                    t1 = one - t0;
+                }
+            }
+        }
+    }
+
+    //Eigen::Vector3d result;
+    //result.parameter[0] = one - t0 - t1;
+    //result.parameter[1] = t0;
+    //result.parameter[2] = t1;
+    Eigen::Vector3d closest = v0 + t0 * edge0 + t1 * edge1;
+    diff = p - closest;
+    double distance = diff.norm();
+    return distance;
+}
+
+double TriangleMesh::GetDistanceOfPointAndTriangle(Eigen::Vector3d p, int tidx) {
+
+    const Eigen::Vector3i &triangle = triangles_[tidx];
+    Eigen::Vector3d &v1 = vertices_[triangle(0)];
+    Eigen::Vector3d &v2 = vertices_[triangle(1)];
+    Eigen::Vector3d &v3 = vertices_[triangle(2)];
+
+    // (1) case - projected point is on the triangle. Get distance of point - plane.
+    Eigen::Vector4d abcd = GetTrianglePlane(tidx);
+    double nom = abcd(0)*p(0) + abcd(1)*p(1) + abcd(2)*p(2) + abcd(3);
+    double denom = abcd(0)*abcd(0) + abcd(1)*abcd(1) + abcd(2)*abcd(2);
+    double distance = std::abs(nom) / std::sqrt(denom);
+     
+    // (2) case - porjected point is not on the triangle. Get distance of point - edge.
+    distance = std::min(distance, GetDistanceOfPointAndEdge(p, v1, v2));
+    distance = std::min(distance, GetDistanceOfPointAndEdge(p, v1, v3));
+    distance = std::min(distance, GetDistanceOfPointAndEdge(p, v2, v3));
+
+    return distance;
+}
+
+double TriangleMesh::GetDistanceOfPointAndEdge(Eigen::Vector3d p, Eigen::Vector3d v1, Eigen::Vector3d v2) {
+
+    Eigen::Vector3d e1 = v2 - v1; // v1 -> v2
+    Eigen::Vector3d p1 = p - v1;
+    double cos1 = e1.dot(p1) / (e1.norm() * p1.norm());
+    double p1_v1 = (p1 - v1).norm();
+    double distance = p1_v1 * std::sqrt(1 - cos1*cos1);
+
+    return distance;
 }
 
 std::shared_ptr<PointCloud> TriangleMesh::SamplePointsPoissonDisk(

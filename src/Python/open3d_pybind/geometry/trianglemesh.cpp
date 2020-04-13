@@ -249,6 +249,36 @@ void pybind_trianglemesh(py::module &m) {
                  &geometry::TriangleMesh::SamplePointsUniformly,
                  "Function to uniformly sample points from the mesh.",
                  "number_of_points"_a = 100, "use_triangle_normal"_a = false)
+            .def("sample_points_uniformly_with_triangles",
+                 &geometry::TriangleMesh::SamplePointsUniformlyWithTriangles,
+                 "Function to uniformly sample points from the mesh and return pcd with triangles, vertices.",
+                 "number_of_points"_a = 100, "use_triangle_normal"_a = false)
+            .def("get_voxel_label",
+                 &geometry::TriangleMesh::GetVoxelLabel,
+                 "Function to get voxel label.",
+                 "coords"_a,
+                 "triangle_idxs"_a,
+                 "resolution"_a, 
+                 "translation"_a,
+                 "scale"_a)
+            .def("get_cube_corner_label",
+                 &geometry::TriangleMesh::GetCubeCornerLabel,
+                 "Function to get corner label of cubes.",
+                 "pcd"_a,
+                 "unique_coords"_a,
+                 "inverse_map"_a,
+                 "triangle_idxs"_a,
+                 "num_cubes"_a, "resolution"_a, "translation"_a,
+                 "scale"_a)
+            .def("get_cube_corner_label_v2",
+                 &geometry::TriangleMesh::GetCubeCornerLabel_v2,
+                 "Function to get corner label of cubes.",
+                 "floor_coords"_a,
+                 "round_coords"_a,
+                 "triangle_idxs"_a,
+                 "resolution"_a, 
+                 "translation"_a,
+                 "scale"_a)
             .def("sample_points_poisson_disk",
                  &geometry::TriangleMesh::SamplePointsPoissonDisk,
                  "Function to sample points from the mesh, where each point "
@@ -572,6 +602,33 @@ void pybind_trianglemesh(py::module &m) {
               "interpolated vertex normals to the returned points. The "
               "triangle normals will be computed and added to the mesh if "
               "necessary."}});
+    docstring::ClassMethodDocInject(
+            m, "TriangleMesh", "sample_points_uniformly_with_triangles",
+            {{"number_of_points",
+              "Number of points that should be uniformly sampled."},
+             {"use_triangle_normal",
+              "If True assigns the triangle normals instead of the "
+              "interpolated vertex normals to the returned points. The "
+              "triangle normals will be computed and added to the mesh if "
+              "necessary."}});
+    docstring::ClassMethodDocInject(
+            m, "TriangleMesh", "get_cube_corner_label",
+            {{"pcd",
+              "pcd"},
+             {"unique_coords",
+              "unique_coords"},
+             {"inverse_map",
+              "inverse_map"},
+             {"triangle_idxs",
+              "triangle_idxs"},
+             {"num_cubes",
+              "num_cubes"},
+             {"resolution",
+              "resolution"},
+             {"translation",
+              "translation"},
+             {"scale",
+              "scale"}});
     docstring::ClassMethodDocInject(
             m, "TriangleMesh", "sample_points_poisson_disk",
             {{"number_of_points", "Number of points that should be sampled."},

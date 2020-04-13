@@ -33,6 +33,11 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <stdexcept>
+#include <iostream>
+#include <algorithm>
+#include <stdlib.h>
+#include <math.h>
 
 #include "Open3D/Geometry/Image.h"
 #include "Open3D/Geometry/MeshBase.h"
@@ -358,6 +363,69 @@ public:
     /// if necessary.
     std::shared_ptr<PointCloud> SamplePointsUniformly(
             size_t number_of_points, bool use_triangle_normal = false);
+
+    /// Function to sample \param number_of_points points uniformly from the
+    /// mesh.
+    std::tuple<
+        std::shared_ptr<PointCloud>, 
+        std::vector<int>
+        > SamplePointsUniformlyWithTrianglesImpl(
+            size_t number_of_points,
+            std::vector<double> &triangle_areas,
+            double surface_area,
+            bool use_triangle_normal);
+
+    /// Function to sample \param number_of_points points uniformly from the
+    /// mesh. \param use_triangle_normal Set to true to assign the triangle
+    /// normals to the returned points instead of the interpolated vertex
+    /// normals. The triangle normals will be computed and added to the mesh
+    /// if necessary.
+    std::tuple<
+        std::shared_ptr<PointCloud>, 
+        std::vector<int>
+        > SamplePointsUniformlyWithTriangles(
+            size_t number_of_points, bool use_triangle_normal = false);
+
+    /// Get corner label(sign) of cube.
+    std::vector<int> GetVoxelLabel(
+            const std::vector<Eigen::Vector3d>& coords,
+            const std::vector<int>& triangle_idxs, 
+            int resolution, 
+            const Eigen::Vector3d & translation,
+            double scale);
+
+    /// Get corner label(sign) of cube.
+    std::tuple<
+        std::vector<Eigen::Vector3d>,
+        std::vector<double>> GetCubeCornerLabel(
+            const std::vector<Eigen::Vector3d>& pcd,
+            const std::vector<Eigen::Vector3d>& unique_coords,
+            const std::vector<int>& inverse_map,
+            const std::vector<int>& triangle_idxs,
+            size_t num_cubes,
+            int resolution, 
+            const Eigen::Vector3d & translation,
+            double scale);
+
+    int IndexOf(Eigen::Vector3i xyz, int resolution);
+    Eigen::Vector3i CoordOf(int idx, int resolution);
+
+    /// Get corner label(sign) of cube.
+    std::tuple<
+        std::vector<Eigen::Vector3i>,
+        std::vector<double>> GetCubeCornerLabel_v2(
+            const std::vector<Eigen::Vector3i>& floor_coords,
+            const std::vector<Eigen::Vector3i>& round_coords,
+            const std::vector<int>& triangle_idxs,
+            int resolution, 
+            const Eigen::Vector3d & translation,
+            double scale);
+
+    double GetDistancePointTriangle(Eigen::Vector3d p, int tidx);
+
+    double GetDistanceOfPointAndTriangle(Eigen::Vector3d p, int tidx);
+
+    double GetDistanceOfPointAndEdge(Eigen::Vector3d p, Eigen::Vector3d v1, Eigen::Vector3d v2);
 
     /// Function to sample \param number_of_points points (blue noise).
     /// Based on the method presented in Yuksel, "Sample Elimination for

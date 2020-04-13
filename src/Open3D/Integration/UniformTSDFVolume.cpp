@@ -230,6 +230,14 @@ UniformTSDFVolume::ExtractTriangleMesh() {
     return mesh;
 }
 
+void UniformTSDFVolume::InitVoxels(std::vector<Eigen::Vector3i> coords, std::vector<double> labels) {
+    for (size_t i = 0; i < coords.size(); ++i) {
+        Eigen::Vector3i & coord = coords[i];
+        voxels_[IndexOf(coord)].tsdf_ = (float)labels[i];
+        voxels_[IndexOf(coord)].weight_ = 1.0f;
+    }
+}
+
 std::shared_ptr<geometry::PointCloud>
 UniformTSDFVolume::ExtractVoxelPointCloud() const {
     auto voxel = std::make_shared<geometry::PointCloud>();
