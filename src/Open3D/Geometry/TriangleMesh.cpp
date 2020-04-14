@@ -1009,6 +1009,294 @@ std::tuple<
     return {corner_coords, corner_labels};
 }
 
+std::tuple<
+    std::vector<Eigen::Vector3i>,
+    std::vector<double>> TriangleMesh::GetCubeCornerDistance(
+        const std::vector<Eigen::Vector3i>& round_coords,
+        const std::vector<int>& triangle_idxs,
+        int resolution, 
+        const Eigen::Vector3d & translation,
+        double scale) {
+
+    // Initialize
+    std::vector<Eigen::Vector3i> corner_coords;
+    std::vector<double> corner_labels;
+    
+    // 1. Make coord_to_triangle_idx_list map
+    std::unordered_map<Eigen::Vector3i, std::vector<int>,
+                       utility::hash_eigen::hash<Eigen::Vector3i>>
+            corner_coord_to_tidx_list_map;
+
+    std::vector<Eigen::Vector3i> shift_list;
+    for (int dx = -1; dx < 2; ++dx) {
+        for (int dy = -1; dy < 2; ++dy) {
+            for (int dz = -1; dz < 2; ++dz) {
+                shift_list.push_back( Eigen::Vector3i(dx, dy, dz) );
+            }
+        }
+    }
+
+    for (size_t i = 0; i < round_coords.size(); ++i) {
+        Eigen::Vector3i r_coord = round_coords[i];
+        for (size_t s_idx = 0; s_idx < shift_list.size(); ++s_idx) {
+            Eigen::Vector3i tmp_coord = r_coord + shift_list[s_idx];
+            if (tmp_coord(0) < 0 || tmp_coord(1) < 0 || tmp_coord(2) < 0) continue;
+
+            auto itr = corner_coord_to_tidx_list_map.find(tmp_coord);
+            if (itr == corner_coord_to_tidx_list_map.end()) {
+                std::vector<int> tmp_v;
+                corner_coord_to_tidx_list_map[tmp_coord] = tmp_v;
+            }
+        }
+    }
+
+    // 2. Add triangle_idxs to map
+    for (size_t i = 0; i < round_coords.size(); ++i) {
+        Eigen::Vector3i r_coord = round_coords[i];
+        //auto itr = corner_coord_to_tidx_list_map.find(IndexOf(r_coord, resolution+2));
+        auto itr = corner_coord_to_tidx_list_map.find(r_coord);
+        if (itr == corner_coord_to_tidx_list_map.end()) {
+            throw std::invalid_argument("Invalid r_coord.");
+        }
+        itr->second.push_back(triangle_idxs[i]);
+    }
+    
+    // 3. Fill empty list in map
+    std::vector<Eigen::Vector3i> delta_list;
+    for (int dx = -1; dx < 2; ++dx) {
+        for (int dy = -1; dy < 2; ++dy) {
+            for (int dz = -1; dz < 2; ++dz) {
+                if (dx == 0 && dy ==0 && dz == 0) continue;
+                delta_list.push_back( Eigen::Vector3i(dx, dy, dz) );
+            }
+        }
+    }
+
+    std::unordered_map<Eigen::Vector3i, int, 
+                       utility::hash_eigen::hash<Eigen::Vector3i>>
+            check_map;
+    
+    for (auto& kv : corner_coord_to_tidx_list_map) {
+        if (kv.second.size() == 0) {
+            check_map[kv.first] = 1;
+            for (size_t d_idx = 0; d_idx < delta_list.size(); ++d_idx) {
+                //Eigen::Vector3i tmp_coord = CoordOf(kv.first, resolution+2) + delta_list[d_idx];
+                Eigen::Vector3i tmp_coord = kv.first + delta_list[d_idx];
+                //auto itr = corner_coord_to_tidx_list_map.find(IndexOf(tmp_coord, resolution+2));
+                auto check_itr = check_map.find(tmp_coord);
+                if (check_itr != check_map.end()) continue;
+                auto itr = corner_coord_to_tidx_list_map.find(tmp_coord);
+                if (itr != corner_coord_to_tidx_list_map.end()) {
+                    for (auto &tidx : itr->second) {  
+                        corner_coord_to_tidx_list_map[kv.first].push_back(tidx);
+                    }
+                }
+            }
+        }
+        if (kv.second.size() == 0) {
+            throw std::invalid_argument("empty");
+        }
+    }
+
+    // 4. Iterate map for assigning label.
+    for (auto& kv : corner_coord_to_tidx_list_map) {
+        
+        //Eigen::Vector3i point_int = CoordOf(kv.first, resolution+2);
+        Eigen::Vector3i point_int = kv.first;
+        corner_coords.push_back(point_int);
+        Eigen::Vector3d point((double)point_int(0), (double)point_int(1), (double)point_int(2));
+
+        // Denormalize
+        point = ((point / resolution) * scale) + translation;
+
+        // Find the closest triangle to the point
+        double best_dist = 123456789;
+        double distance = 0;
+        int best_tidx = -1;
+
+        for (size_t v_idx = 0; v_idx < kv.second.size(); ++v_idx) {
+            int tidx = kv.second[v_idx];
+            distance = GetDistancePointTriangle(point, tidx);
+            if (distance < best_dist) {
+                best_dist = distance;
+                best_tidx = tidx;
+            }
+        }
+
+        if (best_tidx == -1) {
+            throw std::invalid_argument("best_tidx is -1.");
+        }
+
+        // Get triangle plane and calculate label value
+        Eigen::Vector4d abcd = GetTrianglePlane(best_tidx);
+        double det_value = abcd(0) * point(0) + abcd(1) * point(1) + abcd(2) * point(2) + abcd(3);
+        double denom = abcd(0)*abcd(0) + abcd(1)*abcd(1) + abcd(2)*abcd(2);
+        double value = det_value / std::sqrt(denom); // point to plane distance
+        if (value == 0)
+            throw std::invalid_argument("received 0.");
+        corner_labels.push_back(value);
+    }
+
+    return {corner_coords, corner_labels};
+}
+
+std::tuple<
+    std::vector<Eigen::Vector3i>,
+    std::vector<double>> TriangleMesh::GetCubeCornerDistanceKDTree(
+        const std::vector<Eigen::Vector3i>& round_coords,
+        const std::vector<Eigen::Vector3d>& sampled_points,
+        const std::vector<int>& triangle_idxs,
+        int resolution, 
+        const Eigen::Vector3d & translation,
+        double scale) {
+
+    // Initialize
+    std::vector<Eigen::Vector3i> corner_coords;
+    std::vector<double> corner_labels;
+    
+    // 1. Make coordinate set 
+    std::unordered_set<Eigen::Vector3i, utility::hash_eigen::hash<Eigen::Vector3i>>
+            coords_set;
+
+    std::vector<Eigen::Vector3i> shift_list;
+    for (int dx = -1; dx < 2; ++dx) {
+        for (int dy = -1; dy < 2; ++dy) {
+            for (int dz = -1; dz < 2; ++dz) {
+                shift_list.push_back( Eigen::Vector3i(dx, dy, dz) );
+            }
+        }
+    }
+
+    for (size_t i = 0; i < round_coords.size(); ++i) {
+        Eigen::Vector3i r_coord = round_coords[i];
+        for (size_t s_idx = 0; s_idx < shift_list.size(); ++s_idx) {
+            Eigen::Vector3i tmp_coord = r_coord + shift_list[s_idx];
+            if (tmp_coord(0) < 0 || tmp_coord(1) < 0 || tmp_coord(2) < 0) continue;
+
+            auto itr = coords_set.find(tmp_coord);
+            if (itr == coords_set.end()) {
+                coords_set.insert(tmp_coord);
+            }
+        }
+    }
+
+    // 2. Make KDTree of sampled points
+
+    std::shared_ptr<PointCloud> pcd = std::make_shared<PointCloud>(sampled_points);
+    KDTreeFlann kdtree(*pcd);
+
+    // 3. Iterate coords set
+    for (auto &elem : coords_set) {
+        corner_coords.push_back(elem);
+
+        Eigen::Vector3d point((double)elem(0), (double)elem(1), (double)elem(2));
+
+        // Denormalize
+        point = ((point / resolution) * scale) + translation;
+
+        // Find NN-1
+        Eigen::Vector3d &query = point;
+        std::vector<int> indices;
+        std::vector<double> distance2;
+        int k = kdtree.SearchKNN(query, 1, indices, distance2);
+        if (k < 0)
+            throw std::runtime_error(
+                "search_knn_vector_3d() error!");
+        int tidx = triangle_idxs[indices[0]];
+
+        // Get distance point and triangle plane
+        Eigen::Vector4d abcd = GetTrianglePlane(tidx);
+        double det_value = abcd(0) * point(0) + abcd(1) * point(1) + abcd(2) * point(2) + abcd(3);
+        double denom = abcd(0)*abcd(0) + abcd(1)*abcd(1) + abcd(2)*abcd(2);
+        double value = det_value / std::sqrt(denom); // point to plane distance
+        if (value == 0)
+            throw std::runtime_error("the distance is 0.");
+        corner_labels.push_back(value);
+    }
+
+    return {corner_coords, corner_labels};
+}
+
+std::tuple<
+    std::vector<Eigen::Vector3i>,
+    std::vector<double>> TriangleMesh::GetCubeCornerDistanceKDTreeTriangleDistance(
+        const std::vector<Eigen::Vector3i>& round_coords,
+        const std::vector<Eigen::Vector3d>& sampled_points,
+        const std::vector<int>& triangle_idxs,
+        int resolution, 
+        const Eigen::Vector3d & translation,
+        double scale) {
+
+    // Initialize
+    std::vector<Eigen::Vector3i> corner_coords;
+    std::vector<double> corner_labels;
+    
+    // 1. Make coordinate set 
+    std::unordered_set<Eigen::Vector3i, utility::hash_eigen::hash<Eigen::Vector3i>>
+            coords_set;
+
+    std::vector<Eigen::Vector3i> shift_list;
+    for (int dx = -1; dx < 2; ++dx) {
+        for (int dy = -1; dy < 2; ++dy) {
+            for (int dz = -1; dz < 2; ++dz) {
+                shift_list.push_back( Eigen::Vector3i(dx, dy, dz) );
+            }
+        }
+    }
+
+    for (size_t i = 0; i < round_coords.size(); ++i) {
+        Eigen::Vector3i r_coord = round_coords[i];
+        for (size_t s_idx = 0; s_idx < shift_list.size(); ++s_idx) {
+            Eigen::Vector3i tmp_coord = r_coord + shift_list[s_idx];
+            if (tmp_coord(0) < 0 || tmp_coord(1) < 0 || tmp_coord(2) < 0) continue;
+
+            auto itr = coords_set.find(tmp_coord);
+            if (itr == coords_set.end()) {
+                coords_set.insert(tmp_coord);
+            }
+        }
+    }
+
+    // 2. Make KDTree of sampled points
+
+    std::shared_ptr<PointCloud> pcd = std::make_shared<PointCloud>(sampled_points);
+    KDTreeFlann kdtree(*pcd);
+
+    // 3. Iterate coords set
+    for (auto &elem : coords_set) {
+        corner_coords.push_back(elem);
+
+        Eigen::Vector3d point((double)elem(0), (double)elem(1), (double)elem(2));
+
+        // Denormalize
+        point = ((point / resolution) * scale) + translation;
+
+        // Find NN-1
+        Eigen::Vector3d &query = point;
+        std::vector<int> indices;
+        std::vector<double> distance2;
+        int k = kdtree.SearchKNN(query, 1, indices, distance2);
+        if (k < 0)
+            throw std::runtime_error(
+                "search_knn_vector_3d() error!");
+        int tidx = triangle_idxs[indices[0]];
+
+        // Get distance point and triangle plane
+        double value = GetDistancePointTriangle(point, tidx);
+
+        Eigen::Vector4d abcd = GetTrianglePlane(tidx);
+        double det_value = abcd(0) * point(0) + abcd(1) * point(1) + abcd(2) * point(2) + abcd(3);
+        if (det_value < 0) 
+            value *= -1;
+        if (det_value == 0)
+            throw std::runtime_error("the distance is 0.");
+        corner_labels.push_back(value);
+    }
+
+    return {corner_coords, corner_labels};
+}
+
+
 double TriangleMesh::GetDistancePointTriangle(Eigen::Vector3d p, int tidx) {
 
     const Eigen::Vector3i &triangle = triangles_[tidx];
@@ -1300,6 +1588,8 @@ std::shared_ptr<PointCloud> TriangleMesh::SamplePointsPoissonDisk(
     std::vector<double> weights(pcl->points_.size());
     std::vector<bool> deleted(pcl->points_.size(), false);
     KDTreeFlann kdtree(*pcl);
+
+        pcl = std::make_shared<PointCloud>();
 
     auto WeightFcn = [&](double d2) {
         double d = std::sqrt(d2);

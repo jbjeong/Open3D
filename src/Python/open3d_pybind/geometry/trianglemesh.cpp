@@ -279,6 +279,32 @@ void pybind_trianglemesh(py::module &m) {
                  "resolution"_a, 
                  "translation"_a,
                  "scale"_a)
+            .def("get_cube_corner_distance",
+                 &geometry::TriangleMesh::GetCubeCornerDistance,
+                 "Function to get corner distance of cubes.",
+                 "round_coords"_a,
+                 "triangle_idxs"_a,
+                 "resolution"_a, 
+                 "translation"_a,
+                 "scale"_a)
+            .def("get_cube_corner_distance_kdtree",
+                 &geometry::TriangleMesh::GetCubeCornerDistanceKDTree,
+                 "Function to get corner distance of cubes.",
+                 "round_coords"_a,
+                 "sampled_points"_a,
+                 "triangle_idxs"_a,
+                 "resolution"_a, 
+                 "translation"_a,
+                 "scale"_a)
+            .def("get_cube_corner_distance_kdtree_triangle_distance",
+                 &geometry::TriangleMesh::GetCubeCornerDistanceKDTree,
+                 "Function to get corner distance of cubes.",
+                 "round_coords"_a,
+                 "sampled_points"_a,
+                 "triangle_idxs"_a,
+                 "resolution"_a, 
+                 "translation"_a,
+                 "scale"_a)
             .def("sample_points_poisson_disk",
                  &geometry::TriangleMesh::SamplePointsPoissonDisk,
                  "Function to sample points from the mesh, where each point "

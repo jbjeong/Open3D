@@ -410,12 +410,44 @@ public:
     int IndexOf(Eigen::Vector3i xyz, int resolution);
     Eigen::Vector3i CoordOf(int idx, int resolution);
 
-    /// Get corner label(sign) of cube.
+    /// Get corner label(distance) of cube.
     std::tuple<
         std::vector<Eigen::Vector3i>,
         std::vector<double>> GetCubeCornerLabel_v2(
             const std::vector<Eigen::Vector3i>& floor_coords,
             const std::vector<Eigen::Vector3i>& round_coords,
+            const std::vector<int>& triangle_idxs,
+            int resolution, 
+            const Eigen::Vector3d & translation,
+            double scale);
+
+    /// Get corner label(distance) of cube.
+    std::tuple<
+        std::vector<Eigen::Vector3i>,
+        std::vector<double>> GetCubeCornerDistance(
+            const std::vector<Eigen::Vector3i>& round_coords,
+            const std::vector<int>& triangle_idxs,
+            int resolution, 
+            const Eigen::Vector3d & translation,
+            double scale);
+
+    /// Get corner label(distance) of cube.
+    std::tuple<
+        std::vector<Eigen::Vector3i>,
+        std::vector<double>> GetCubeCornerDistanceKDTree(
+            const std::vector<Eigen::Vector3i>& round_coords,
+            const std::vector<Eigen::Vector3d>& sampled_points,
+            const std::vector<int>& triangle_idxs,
+            int resolution, 
+            const Eigen::Vector3d & translation,
+            double scale);
+
+    /// Get corner label(distance) of cube.
+    std::tuple<
+        std::vector<Eigen::Vector3i>,
+        std::vector<double>> GetCubeCornerDistanceKDTreeTriangleDistance(
+            const std::vector<Eigen::Vector3i>& round_coords,
+            const std::vector<Eigen::Vector3d>& sampled_points,
             const std::vector<int>& triangle_idxs,
             int resolution, 
             const Eigen::Vector3d & translation,
