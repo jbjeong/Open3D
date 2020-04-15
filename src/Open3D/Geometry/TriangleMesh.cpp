@@ -1167,7 +1167,8 @@ std::tuple<
 
 std::tuple<
     std::vector<Eigen::Vector3i>,
-    std::vector<double>> TriangleMesh::GetCubeCornerDistanceKDTree(
+    std::vector<double>,
+    std::vector<Eigen::Vector3d>> TriangleMesh::GetCubeCornerDistanceKDTree(
         const std::vector<Eigen::Vector3i>& round_coords,
         const std::vector<Eigen::Vector3d>& sampled_points,
         const std::vector<int>& triangle_idxs,
@@ -1178,6 +1179,7 @@ std::tuple<
     // Initialize
     std::vector<Eigen::Vector3i> corner_coords;
     std::vector<double> corner_labels;
+    std::vector<Eigen::Vector3d> corner_colors;
     
     // 1. Make coordinate set 
     std::unordered_set<Eigen::Vector3i, utility::hash_eigen::hash<Eigen::Vector3i>>
@@ -1237,9 +1239,23 @@ std::tuple<
         if (value == 0)
             throw std::runtime_error("the distance is 0.");
         corner_labels.push_back(value);
+
+        // Get interpolated color
+        Eigen::Vector3i &triangle = triangles_[tidx];
+        Eigen::Vector3d &v0 = vertices_[triangle(0)];
+        Eigen::Vector3d &v1 = vertices_[triangle(1)];
+        Eigen::Vector3d &v2 = vertices_[triangle(2)];
+        double d0 = (point - v0).norm();
+        double d1 = (point - v1).norm();
+        double d2 = (point - v2).norm();
+        double sum_d = d0 + d1 + d2;
+        Eigen::Vector3d color = (d0 / sum_d) * vertex_colors_[triangle(0)] + \
+            (d1 / sum_d) * vertex_colors_[triangle(1)] + \
+            (d2 / sum_d) * vertex_colors_[triangle(2)];
+        corner_colors.push_back(color);
     }
 
-    return {corner_coords, corner_labels};
+    return {corner_coords, corner_labels, corner_colors};
 }
 
 std::tuple<

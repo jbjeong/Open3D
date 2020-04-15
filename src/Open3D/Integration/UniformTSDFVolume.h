@@ -72,7 +72,9 @@ public:
     std::shared_ptr<geometry::TriangleMesh> ExtractTriangleMesh() override;
 
     // Initialize this->voxels_
-    void InitVoxels(std::vector<Eigen::Vector3i> coords, std::vector<double> labels);
+    void InitVoxels(std::vector<Eigen::Vector3i> coords, 
+                    std::vector<double> labels,
+                    std::vector<Eigen::Vector3d> colors);
 
     /// Debug function to extract the voxel data into a VoxelGrid
     std::shared_ptr<geometry::PointCloud> ExtractVoxelPointCloud() const;

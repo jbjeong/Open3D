@@ -434,7 +434,8 @@ public:
     /// Get corner label(distance) of cube.
     std::tuple<
         std::vector<Eigen::Vector3i>,
-        std::vector<double>> GetCubeCornerDistanceKDTree(
+        std::vector<double>,
+        std::vector<Eigen::Vector3d>> GetCubeCornerDistanceKDTree(
             const std::vector<Eigen::Vector3i>& round_coords,
             const std::vector<Eigen::Vector3d>& sampled_points,
             const std::vector<int>& triangle_idxs,

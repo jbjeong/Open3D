@@ -230,11 +230,15 @@ UniformTSDFVolume::ExtractTriangleMesh() {
     return mesh;
 }
 
-void UniformTSDFVolume::InitVoxels(std::vector<Eigen::Vector3i> coords, std::vector<double> labels) {
+void UniformTSDFVolume::InitVoxels(
+        std::vector<Eigen::Vector3i> coords, 
+        std::vector<double> labels,
+        std::vector<Eigen::Vector3d> colors) {
     for (size_t i = 0; i < coords.size(); ++i) {
         Eigen::Vector3i & coord = coords[i];
         voxels_[IndexOf(coord)].tsdf_ = (float)labels[i];
         voxels_[IndexOf(coord)].weight_ = 1.0f;
+        voxels_[IndexOf(coord)].color_ = colors[i];
     }
 }
 
