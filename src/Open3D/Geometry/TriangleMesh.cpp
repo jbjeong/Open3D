@@ -505,7 +505,32 @@ std::tuple<
                 triangle_areas[tidx] / surface_area + triangle_areas[tidx - 1];
     }
     
-    std::vector<int> triangle_idxs; // Triangle index
+    // Triangle index
+    std::vector<int> triangle_idxs;
+    
+    // Get vertex color from texture
+    vertex_colors_.resize(vertices_.size());
+    Image &texture = textures_[0];
+    int img_width = texture.width_;
+    int img_height = texture.height_;
+
+    for (size_t tidx = 0; tidx < triangles_.size(); ++tidx) {
+        Eigen::Vector3i &triangle = triangles_[tidx];
+
+        int uv_idx = tidx * 3;
+        for (int v_i = 0; v_i < 3; ++v_i) {
+            size_t vidx = triangle(v_i);
+            Eigen::Vector2d &uv = triangle_uvs_[uv_idx + v_i];
+            int ui = (int)(uv(0) * img_width);
+            //int ui = (int)((1 - uv(0)) * img_width);
+            int vi = (int)(uv(1) * img_height);
+            //int vi = (int)((1 - uv(1)) * img_height);
+            uint8_t* r = texture.PointerAt<uint8_t>(ui, vi, 0);
+            uint8_t* g = texture.PointerAt<uint8_t>(ui, vi, 1);
+            uint8_t* b = texture.PointerAt<uint8_t>(ui, vi, 2);
+            vertex_colors_[vidx] = Eigen::Vector3d((double)*r / 255, (double)*g / 255, (double)*b / 255);
+        }
+    }
 
     // sample point cloud
     bool has_vert_normal = HasVertexNormals();
