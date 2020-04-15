@@ -510,6 +510,8 @@ std::tuple<
     
     // Get vertex color from texture
     vertex_colors_.resize(vertices_.size());
+    if (textures_.size() == 0) 
+        throw std::runtime_error("textures size is 0!");
     Image &texture = textures_[0];
     int img_width = texture.width_;
     int img_height = texture.height_;
@@ -525,6 +527,16 @@ std::tuple<
             //int ui = (int)((1 - uv(0)) * img_width);
             int vi = (int)(uv(1) * img_height);
             //int vi = (int)((1 - uv(1)) * img_height);
+            
+            ui = std::max(ui, 0);
+            vi = std::max(vi, 0);
+            ui = std::min(ui, img_width-1);
+            vi = std::min(vi, img_height-1);
+
+//            if (ui < 0 || vi < 0 || ui == img_width-1 || vi == img_height-1) {
+//                throw std::runtime_error("out_of_range !");
+//            }
+
             uint8_t* r = texture.PointerAt<uint8_t>(ui, vi, 0);
             uint8_t* g = texture.PointerAt<uint8_t>(ui, vi, 1);
             uint8_t* b = texture.PointerAt<uint8_t>(ui, vi, 2);
