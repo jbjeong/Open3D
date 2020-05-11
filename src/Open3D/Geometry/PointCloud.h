@@ -30,6 +30,7 @@
 #include <memory>
 #include <tuple>
 #include <vector>
+#include <iostream>
 
 #include "Open3D/Geometry/Geometry3D.h"
 #include "Open3D/Geometry/KDTreeSearchParam.h"
@@ -351,6 +352,16 @@ public:
     /// \param voxel_grid The input VoxelGrid.
     std::shared_ptr<PointCloud> CreateFromVoxelGrid(
             const VoxelGrid &voxel_grid);
+
+    std::tuple<
+        std::vector<Eigen::Vector3i>,
+        std::vector<double>> 
+            GetTSDFCoordAndDistance(
+                const std::vector<Eigen::Vector3i> &round_coords,
+                const Eigen::Vector3d &translation,
+                double scale,
+                double radius); 
+
 
 public:
     /// RGB colors of points.

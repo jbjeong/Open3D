@@ -176,6 +176,14 @@ void pybind_pointcloud(py::module &m) {
                  "Segments a plane in the point cloud using the RANSAC "
                  "algorithm.",
                  "distance_threshold"_a, "ransac_n"_a, "num_iterations"_a)
+            .def("get_tsdf_coord_and_distance",
+                 &geometry::PointCloud::GetTSDFCoordAndDistance,
+                 "Get TSDF coordinates and distance of voxelized point.",
+                 "round_coord"_a,
+                 "translation"_a,
+                 "scale"_a,
+                 "radius"_a
+                 ) 
             .def_static(
                     "create_from_depth_image",
                     &geometry::PointCloud::CreateFromDepthImage,

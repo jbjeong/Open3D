@@ -671,5 +671,80 @@ PointCloud::HiddenPointRemoval(const Eigen::Vector3d &camera_location,
     return std::make_tuple(visible_mesh, pt_map);
 }
 
+std::tuple<
+    std::vector<Eigen::Vector3i>,
+    std::vector<double>> 
+PointCloud::GetTSDFCoordAndDistance(
+        const std::vector<Eigen::Vector3i> &round_coords,
+        const Eigen::Vector3d &translation,
+        double scale,
+        double radius) {
+    // Init
+    std::vector<Eigen::Vector3i> result_coords;
+    std::vector<double> result_labels;
+
+    // 1.Make KDTree of points
+    KDTreeFlann kdtree(*this);
+
+    // 2. Make coordinates of voxel grid.
+    std::unordered_set<Eigen::Vector3i, utility::hash_eigen::hash<Eigen::Vector3i>>
+            coords_set;
+
+    std::vector<Eigen::Vector3i> shift_list;
+    for (int dx = -1; dx < 2; ++dx) {
+        for (int dy = -1; dy < 2; ++dy) {
+            for (int dz = -1; dz < 2; ++dz) {
+                shift_list.push_back( Eigen::Vector3i(dx, dy, dz) );
+            }
+        }
+    }
+
+    for (size_t i = 0; i < round_coords.size(); ++i) {
+        const Eigen::Vector3i &r_coord = round_coords[i];
+        for (size_t s_idx = 0; s_idx < shift_list.size(); ++s_idx) {
+            Eigen::Vector3i tmp_coord = r_coord + shift_list[s_idx];
+            if (tmp_coord(0) < 0 || tmp_coord(1) < 0 || tmp_coord(2) < 0) continue;
+
+            auto itr = coords_set.find(tmp_coord);
+            if (itr == coords_set.end()) {
+                coords_set.insert(tmp_coord);
+            }
+        }
+    }
+
+    // 3. Find 1-NN
+    for (auto &elem : coords_set) {
+        Eigen::Vector3d point((double)elem(0), (double)elem(1), (double)elem(2));
+        point = (point / scale) + translation;
+
+        std::vector<int> indices;
+        std::vector<double> distance2;
+        int k = kdtree.SearchKNN(point, 1, indices, distance2);
+        if (k < 0)
+            throw std::runtime_error(
+                "search_knn_vector_3d() error!");
+
+        // Check if the surface point is in the round.
+        if (distance2[0] < (radius / scale)) {
+            int point_idx = indices[0];
+            Eigen::Vector3d &normal = normals_[point_idx];
+            Eigen::Vector3d surf_to_point = point - points_[point_idx];
+
+            double result_label;
+            // Check if the direction of vector(surface to point)
+            // and normal of surface are the same.
+            if (surf_to_point.dot(normal) >= 0)
+                result_label = distance2[0];
+            else 
+                result_label = -distance2[0];
+
+            result_coords.push_back(elem);
+            result_labels.push_back(result_label);
+        }
+    }
+
+    return {result_coords, result_labels};
+}
+
 }  // namespace geometry
 }  // namespace open3d
