@@ -509,38 +509,39 @@ std::tuple<
     std::vector<int> triangle_idxs;
     
     // Get vertex color from texture
-    vertex_colors_.resize(vertices_.size());
-    if (textures_.size() == 0) 
-        throw std::runtime_error("textures size is 0!");
-    Image &texture = textures_[0];
-    int img_width = texture.width_;
-    int img_height = texture.height_;
+    if (textures_.size() != 0) {
+        // throw std::runtime_error("textures size is 0!");
 
-    for (size_t tidx = 0; tidx < triangles_.size(); ++tidx) {
-        Eigen::Vector3i &triangle = triangles_[tidx];
+        vertex_colors_.resize(vertices_.size());
+        Image &texture = textures_[0];
+        int img_width = texture.width_;
+        int img_height = texture.height_;
 
-        int uv_idx = tidx * 3;
-        for (int v_i = 0; v_i < 3; ++v_i) {
-            size_t vidx = triangle(v_i);
-            Eigen::Vector2d &uv = triangle_uvs_[uv_idx + v_i];
-            int ui = (int)(uv(0) * img_width);
-            //int ui = (int)((1 - uv(0)) * img_width);
-            int vi = (int)(uv(1) * img_height);
-            //int vi = (int)((1 - uv(1)) * img_height);
-            
-            ui = std::max(ui, 0);
-            vi = std::max(vi, 0);
-            ui = std::min(ui, img_width-1);
-            vi = std::min(vi, img_height-1);
+        for (size_t tidx = 0; tidx < triangles_.size(); ++tidx) {
+            Eigen::Vector3i &triangle = triangles_[tidx];
 
-//            if (ui < 0 || vi < 0 || ui == img_width-1 || vi == img_height-1) {
-//                throw std::runtime_error("out_of_range !");
-//            }
+            int uv_idx = tidx * 3;
+            for (int v_i = 0; v_i < 3; ++v_i) {
+                size_t vidx = triangle(v_i);
+                Eigen::Vector2d &uv = triangle_uvs_[uv_idx + v_i];
+                int ui = (int)(uv(0) * img_width);
+                //int ui = (int)((1 - uv(0)) * img_width);
+                int vi = (int)(uv(1) * img_height);
+                //int vi = (int)((1 - uv(1)) * img_height);
+                
+                ui = std::max(ui, 0);
+                vi = std::max(vi, 0);
+                ui = std::min(ui, img_width-1);
+                vi = std::min(vi, img_height-1);
+    //            if (ui < 0 || vi < 0 || ui == img_width-1 || vi == img_height-1) {
+    //                throw std::runtime_error("out_of_range !");
+    //            }
 
-            uint8_t* r = texture.PointerAt<uint8_t>(ui, vi, 0);
-            uint8_t* g = texture.PointerAt<uint8_t>(ui, vi, 1);
-            uint8_t* b = texture.PointerAt<uint8_t>(ui, vi, 2);
-            vertex_colors_[vidx] = Eigen::Vector3d((double)*r / 255, (double)*g / 255, (double)*b / 255);
+                uint8_t* r = texture.PointerAt<uint8_t>(ui, vi, 0);
+                uint8_t* g = texture.PointerAt<uint8_t>(ui, vi, 1);
+                uint8_t* b = texture.PointerAt<uint8_t>(ui, vi, 2);
+                vertex_colors_[vidx] = Eigen::Vector3d((double)*r / 255, (double)*g / 255, (double)*b / 255);
+            }
         }
     }
 
